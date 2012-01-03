@@ -29,7 +29,7 @@ if ($status === FALSE) {
 $rs = $db->execute("SELECT COUNT(id) AS count FROM pages");
 $count = $rs->fields["count"];
 
-h1("Starting with $count row(s) in the database\n");
+bold("Starting with $count row(s) in the database\n");
 
 $rss = array();
 $rss["thestar"] = "http://thestar.com.my/rss/nation.xml";
@@ -51,7 +51,7 @@ while (TRUE) {
 
     foreach($rss as $site=>$url) {
 
-        h1("Downloading and parsing feed: $url\n");
+        bold("Downloading and parsing feed: $url\n");
         $feed->set_feed_url($url);
         $feed->init();
 
@@ -72,14 +72,22 @@ while (TRUE) {
                 if ($html === FALSE) {
 
                     red("ERR could not retrieve $link");
+                    @file_put_contents("error.log", "Could not retrieve link $link", FILE_APPEND);  // If errors happen here, we
+                                                                                                    // cheerfully ignore it
                     continue;
+
                 }
 
                 $time = time();
-                $site = $site;
+                $content = extractContent($site, $html);
 
-$insstmt= $db->Prepare("INSERT INTO pages (insertion_time, site, link, tags, title, html) VALUES (?, ?, ?, ?, ?, ?)");
-                $db->execute($insstmt, array($time, $site, $link, extractTags($html), extractTitle($html), $html, extractContent($site, $html)));
+                if (strlen($content) === 0) {
+
+                    red("ERR could not retrieve $link");
+                    @file_put_contents("error.log", "No content in $link", FILE_APPEND);
+                    continue;
+ 
+                } else $db->execute($insstmt, array($time, $site, $link, extractTags($html), extractTitle($html), $html, $content));
 
             } else {
 
@@ -93,7 +101,7 @@ $insstmt= $db->Prepare("INSERT INTO pages (insertion_time, site, link, tags, tit
 
     }
 
-    h1("Going to snooze for 15 minutes");
+    bold("Going to snooze for 15 minutes");
     sleep(15*60);
 
 }
@@ -133,7 +141,7 @@ function extractTags($html) {
 
 }
 
-function h1($msg) {
+function bold($msg) {
     echo "\033[1m$msg\033[0m\n";
 }
 

@@ -12,7 +12,7 @@ Pokes the following news sites, parses the content, tags it for use in relevant 
 # Dependencies
 
 * PHP 5.3.x (with command line support)
-* SQLite3 + relevant PHP bindings
+* MySQL 5.x + relevant PHP bindings
 * A good sense of humour
 
 # How do I use it?
@@ -21,4 +21,6 @@ Pokes the following news sites, parses the content, tags it for use in relevant 
 $ php -q scrapper.php
 ````
 
-Add this to cron to some suitable timing.
+Note that it's not been daemonized yet.
+
+Errors are logged in error.log. Other output is to stdout.

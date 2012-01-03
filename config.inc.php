@@ -5,8 +5,8 @@ $config = array(
     "db" => array(
 
         "server"=>"localhost",
-        "username"=>"user",
-        "password"=>"pass",
+        "username"=>"root",
+        "password"=>"",
         "database"=>"sinar",
 
     )
