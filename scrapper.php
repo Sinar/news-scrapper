@@ -1,25 +1,35 @@
 <?php
 
 error_reporting(E_ALL & ~E_DEPRECATED);
+
+if (!file_exists("config.inc.php")) {
+
+    red("ERR: Unable to read config file (config.inc.php)");
+    exit(1);
+
+}
+
+require_once("config.inc.php");         // Configuration file
+require_once("adodb5/adodb.inc.php");    // Because ADOdb is the library of choice :)
 require_once("simplepie.inc.php");      // For RSS parsing
 require_once("simple_html_dom.php");    // For content extraction
 
-// SQLite DB setup
-class MyDB extends SQLite3 {
+// Setup
+$db = NewADOConnection('mysql');
+$status = @$db->Connect($config["db"]["server"], $config["db"]["username"], $config["db"]["password"], $config["db"]["database"]);
 
-    function __construct() {
+if ($status === FALSE) {
 
-        $this->open('scrapper.db');
-        $this->exec('CREATE TABLE IF NOT EXISTS pages (id INTEGER, insertion_time INTEGER, site STRING, link STRING, title STRING, html STRING, extracted_content STRING, tags STRING, PRIMARY KEY (id))');
+    red("ERR: Unable to connect to the database (check config.inc.php)");
+    exit(1);
 
-        // select count() considered evil?
-        $rs = $this->query("SELECT COUNT(id) FROM pages");
-        $val = $rs->fetchArray();
-        $val = $val[0];
-        echo "Starting with $val row(s) in the database\n\n";
-
-    }
 }
+
+// select count() considered evil?
+$rs = $db->execute("SELECT COUNT(id) AS count FROM pages");
+$count = $rs->fields["count"];
+
+h1("Starting with $count row(s) in the database\n");
 
 $rss = array();
 $rss["thestar"] = "http://thestar.com.my/rss/nation.xml";
@@ -27,68 +37,64 @@ $rss["tmi"] = "http://allnews.rss.themalaysianinsider.com/c/33362/f/567634/index
 $rss["freemalaysiakini"] = "http://www.freemalaysiakini.com/?feed=rss";
 $rss["utusan"] = "http://www.utusan.com.my/utusan/rss.asp";
 $rss["merdekareview-malay"] = "http://www.merdekareview.com/bm/rss.php";
-$rss["mmail"] = "http://www.mmail.com.my/channel/11/stories/0/feed";
+$rss["mmail"] = "http://mmail.com.my/rss2";
 // $rss["btimes"] = "http://www.btimes.com.my/Current_News/BTIMES/rss/rss_html?section=latest"; // Borken XML in their RSS, grrr
 // $rss["malaysianmirror"] = ""; // These guys don't have a working RSS feed
 
 $feed = new SimplePie();
 $feed->force_fsockopen(true);
 
-$db = new MyDB();
-$chkstmt= $db->prepare("SELECT link FROM pages WHERE link = :link");
-$insstmt= $db->prepare("INSERT INTO pages (insertion_time, site, link, tags, title, html) VALUES (:time, :site, :link, :tags, :title, :html)");
+$chkstmt= $db->Prepare("SELECT link FROM pages WHERE link = ?");
+$insstmt= $db->Prepare("INSERT INTO pages (insertion_time, site, link, tags, title, html) VALUES (?, ?, ?, ?, ?, ?)");
 
-foreach($rss as $site=>$url) {
+while (TRUE) {
 
-    echo "Downloading and parsing feed: $url\n";
-    $feed->set_feed_url($url);
-    $feed->init();
+    foreach($rss as $site=>$url) {
 
-    foreach ($feed->get_items() as $item) {
+        h1("Downloading and parsing feed: $url\n");
+        $feed->set_feed_url($url);
+        $feed->init();
 
-        $link = $item->get_id();
-        if ($site === "utusan") $link = str_replace("&amp;", "&", $link); // Utusan breaks on completely valid use of &amp; Fscking asp
-        else if ($site === "mmail") $link = $item->get_link();
+        foreach ($feed->get_items() as $item) {
 
-        $chkstmt->bindValue(":link", $link);
-        $rs = $chkstmt->execute();
-        $vals = $rs->fetchArray();
+            $link = $item->get_id();
+            if ($site === "utusan") $link = str_replace("&amp;", "&", $link); // Utusan breaks on completely valid use of &amp; Fscking asp
+            else if ($site === "mmail") $link = $item->get_link();
 
-        if ($vals === false) {
+            $rs = $db->execute($chkstmt, array($link));
 
-            echo " * Retrieving HTML from $link";
+            if ($rs->fields === FALSE) {
 
-            $html = @file_get_contents($link);
+                bullets("Retrieving HTML from $link");
 
-            if ($html === FALSE) {
+                $html = @file_get_contents($link);
 
-                echo " - ERR could not retrieve $link\n";
+                if ($html === FALSE) {
+
+                    red("ERR could not retrieve $link");
+                    continue;
+                }
+
+                $time = time();
+                $site = $site;
+
+$insstmt= $db->Prepare("INSERT INTO pages (insertion_time, site, link, tags, title, html) VALUES (?, ?, ?, ?, ?, ?)");
+                $db->execute($insstmt, array($time, $site, $link, extractTags($html), extractTitle($html), $html, extractContent($site, $html)));
+
+            } else {
+
+                bullets("Skipping $link");
                 continue;
+
             }
-
-            echo "\n";
-            $time = time();
-            $site = $site;
-
-            $insstmt->bindValue(":time", $time);
-            $insstmt->bindValue(":site", $site);
-            $insstmt->bindValue(":link", $link);
-            $insstmt->bindValue(":title", extractTitle($html));
-            $insstmt->bindValue(":html", $html);
-            $insstmt->bindValue(":extracted_content", extractContent($site, $html));
-            $insstmt->bindValue(":tags", extractTags($html));
-            $insstmt->execute();
-
-        } else {
-
-            echo " * Skipping $link\n";
-            $rs->finalize();
-            continue;
-
         }
+
+        newline();
+
     }
 
-    echo "\n";
+    h1("Going to snooze for 15 minutes");
+    sleep(15*60);
 
 }
 
@@ -114,6 +120,7 @@ function extractContent($site, $html) {
 
 function extractTags($html) {
 
+    // Need to get tags from: https://github.com/Sinar/Kratos/blob/development/db/scraped/members.json
     $matchedTags = array();
     $html = strtolower($html);
     $tags = array("tony pua", "zahid hamidi", "anwar ibrahim", "muhyiddin yassin", "mahathir mohammad");
@@ -125,5 +132,22 @@ function extractTags($html) {
     return implode(",", $matchedTags);
 
 }
+
+function h1($msg) {
+    echo "\033[1m$msg\033[0m\n";
+}
+
+function bullets($msg) {
+    echo " * $msg\n";
+}
+
+function newline() {
+    echo "\n";
+}
+
+function red($msg) {
+    echo "\033[31m$msg\033[30m\n";
+}
+
 
 ?>
