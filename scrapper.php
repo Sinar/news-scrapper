@@ -4,15 +4,16 @@ error_reporting(E_ALL & ~E_DEPRECATED);
 
 if (!file_exists("config.inc.php")) {
 
-    red("ERR: Unable to read config file (config.inc.php)");
+    red("ERR: Unable to read config file (filename: config.inc.php)");
     exit(1);
 
 }
 
 require_once("config.inc.php");         // Configuration file
-require_once("adodb5/adodb.inc.php");    // Because ADOdb is the library of choice :)
+require_once("adodb5/adodb.inc.php");   // Because ADOdb is the library of choice :)
 require_once("simplepie.inc.php");      // For RSS parsing
 require_once("simple_html_dom.php");    // For content extraction
+require_once("lib.inc.php");            // Common functions
 
 // Setup
 $db = NewADOConnection('mysql');
@@ -25,27 +26,20 @@ if ($status === FALSE) {
 
 }
 
+// Let's set the right charset
+$db->Execute("SET NAMES 'utf8'");
+
 // select count() considered evil?
 $rs = $db->execute("SELECT COUNT(id) AS count FROM pages");
 $count = $rs->fields["count"];
 
 bold("Starting with $count row(s) in the database\n");
 
-$rss = array();
-$rss["thestar"] = "http://thestar.com.my/rss/nation.xml";
-$rss["tmi"] = "http://allnews.rss.themalaysianinsider.com/c/33362/f/567634/index.rss";
-$rss["freemalaysiakini"] = "http://www.freemalaysiakini.com/?feed=rss";
-$rss["utusan"] = "http://www.utusan.com.my/utusan/rss.asp";
-$rss["merdekareview-malay"] = "http://www.merdekareview.com/bm/rss.php";
-$rss["mmail"] = "http://mmail.com.my/rss2";
-// $rss["btimes"] = "http://www.btimes.com.my/Current_News/BTIMES/rss/rss_html?section=latest"; // Borken XML in their RSS, grrr
-// $rss["malaysianmirror"] = ""; // These guys don't have a working RSS feed
-
 $feed = new SimplePie();
 $feed->force_fsockopen(true);
 
 $chkstmt= $db->Prepare("SELECT link FROM pages WHERE link = ?");
-$insstmt= $db->Prepare("INSERT INTO pages (insertion_time, site, link, tags, title, html) VALUES (?, ?, ?, ?, ?, ?)");
+$insstmt= $db->Prepare("INSERT INTO pages (insertion_time, site, link, title, content, html) VALUES (?, ?, ?, ?, ?, ?)");
 
 while (TRUE) {
 
@@ -69,11 +63,13 @@ while (TRUE) {
 
                 $html = @file_get_contents($link);
 
+                if ($site === "utusan") $html = iconv('ISO-8859-15', 'UTF-8//IGNORE', $html);
+                else $html = iconv('', 'UTF-8//IGNORE', $html);
+
                 if ($html === FALSE) {
 
-                    red("ERR could not retrieve $link");
-                    @file_put_contents("error.log", "Could not retrieve link $link", FILE_APPEND);  // If errors happen here, we
-                                                                                                    // cheerfully ignore it
+                    red(" - ERR could not retrieve $link");
+                    errorlog("Could not retrieve link $link");
                     continue;
 
                 }
@@ -81,13 +77,14 @@ while (TRUE) {
                 $time = time();
                 $content = extractContent($site, $html);
 
-                if (strlen($content) === 0) {
+                if ($content === FALSE || strlen($content) === 0) {
 
-                    red("ERR could not retrieve $link");
-                    @file_put_contents("error.log", "No content in $link", FILE_APPEND);
+
+                    red(" - ERR No content in $link");
+                    errorlog("No content in $link");
                     continue;
  
-                } else $db->execute($insstmt, array($time, $site, $link, extractTags($html), extractTitle($html), $html, $content));
+                } else $db->execute($insstmt, array($time, $site, $link, extractTitle($site, $html), $content, $html));
 
             } else {
 
@@ -105,57 +102,5 @@ while (TRUE) {
     sleep(15*60);
 
 }
-
-function extractTitle($html) {
-
-    $h = str_get_html($html);
-    return trim($h->find("title", 0)->plaintext);
-
-}
-
-function extractContent($site, $html) {
-
-    $h = str_get_html($html);
-
-    if ($site === "thestar") return trim($h->find("#story_content", 0)->plaintext);
-    else if ($site === "tmi") return trim($h->find("#article", 0)->plaintext);
-    else if ($site === "freemalaysiakini") return trim($h->find("#innerLeft .post div", 0)->plaintext);
-    else if ($site === "utusan") return trim($h->find("#ContentContainer", 0)->plaintext);
-    else if ($site === "merdekareview-malay") return trim($h->find("#news_content2 td", 0)->plaintext);
-    else if ($site === "mmail") return trim($h->find("#content-area", 0)->plaintext);
-
-}
-
-function extractTags($html) {
-
-    // Need to get tags from: https://github.com/Sinar/Kratos/blob/development/db/scraped/members.json
-    $matchedTags = array();
-    $html = strtolower($html);
-    $tags = array("tony pua", "zahid hamidi", "anwar ibrahim", "muhyiddin yassin", "mahathir mohammad");
-
-    foreach($tags as $tag)
-        if (stristr($html, $tag))
-            $matchedTags[] = $tag;
-
-    return implode(",", $matchedTags);
-
-}
-
-function bold($msg) {
-    echo "\033[1m$msg\033[0m\n";
-}
-
-function bullets($msg) {
-    echo " * $msg\n";
-}
-
-function newline() {
-    echo "\n";
-}
-
-function red($msg) {
-    echo "\033[31m$msg\033[30m\n";
-}
-
 
 ?>

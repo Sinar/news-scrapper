@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS pages (
     link VARCHAR(1024),
     title VARCHAR(1024),
     html TEXT,
-    extracted_content TEXT,
+    content TEXT,
     tags TEXT,
     PRIMARY KEY (id)
-)
+) DEFAULT CHARSET=utf8
