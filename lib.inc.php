@@ -78,11 +78,13 @@ function extractTags($html) {
 }
 
 function bold($msg) {
+    $msg=addDate($msg);
     echo "\033[1m$msg\033[0m\n";
 }
 
 function bullets($msg) {
-    echo " * $msg\n";
+    $msg=addDate(" * $msg");
+    echo "$msg\n";
 }
 
 function newline() {
@@ -90,11 +92,17 @@ function newline() {
 }
 
 function red($msg) {
+    $msg=addDate($msg);
     echo "\033[31m$msg\033[30m\n";
 }
 
 function errorlog($msg) {
+    $msg=addDate($msg);
     @file_put_contents("error.log", "$msg\n", FILE_APPEND);
+}
+
+function addDate($msg) {
+    return date("M y H:i:s:\t").$msg;
 }
 
 ?>
